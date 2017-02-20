@@ -1,24 +1,13 @@
 import pandas as pd
 import numpy as np
-from nltk.stem.snowball import SnowballStemmer
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import Normalizer, LabelEncoder, OneHotEncoder, PolynomialFeatures, MinMaxScaler
-from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics import mean_squared_error, accuracy_score
-from nltk.tokenize import RegexpTokenizer
-from sklearn.feature_extraction import text
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.feature_extraction.text import TfidfTransformer
-from scipy import spatial
 from sklearn import cross_validation
 import math
-from sklearn.svm import SVR
-import glob
-import xlrd
-from xgboost import XGBClassifier
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, RidgeCV, LassoCV
 import matplotlib.pyplot as plt
 from sklearn.pipeline import make_pipeline
+from sklearn.cross_validation import KFold
 import statsmodels.api as sm
 from sklearn.pipeline import Pipeline
 from pybrain.datasets import SupervisedDataSet
@@ -26,6 +15,7 @@ from pybrain.supervised import BackpropTrainer
 from pybrain.tools.shortcuts import buildNetwork
 from pybrain.structure import TanhLayer
 
+""" Normalizing Dataset for Neural Network """
 def normalizeDataset(dataset):
     """
     :param dataset: data to be normalized
@@ -36,6 +26,7 @@ def normalizeDataset(dataset):
     xNormalized = pd.DataFrame(xScaled)
     return xNormalized
 
+""" Neural Network """
 def neuralNetworkRegression(X, Y, X_TEST, Y_TEST):
     """
     :param X: data consisting of features (excluding class variable)
@@ -66,8 +57,8 @@ def neuralNetworkRegression(X, Y, X_TEST, Y_TEST):
     ds.setField('input', train)
     ds.setField('target', outputTrain)
 
-    hiddenSize = 2
-    epochs = 500  # got after parameter tuning
+    hiddenSize = 1
+    epochs = 800  # got after parameter tuning
 
     # neural network training model
     net = buildNetwork( inputSize, hiddenSize, targetSize, hiddenclass=TanhLayer, bias = True )
@@ -107,19 +98,9 @@ def neuralNetworkRegression(X, Y, X_TEST, Y_TEST):
     """ predict new value """
     prediction = net.activate(X_TEST)
     print "Predicted: ",prediction," True: ", Y_TEST#, "Error: ",np.sqrt(mean_squared_error(map(float,Y_test), ridge.predict(X_test)))
+    return prediction
 
-
-data = pd.read_csv('Xtrain.csv', sep=',', header=None)
-dataset = data.values
-header = dataset[0,1:dataset.shape[1]]
-dataset = dataset[1:dataset.shape[0],:]
-X = dataset[:,1:dataset.shape[1]]
-y = dataset[:,0]
-""" remove value from X for prediction """
-X_TEST = X[0]
-Y_TARGET = y[0]
-X = X[1:]
-y = y[1:]
+""" Ridge """
 def ridgeRegression(X,Y, X_test, Y_test):
     """
     :param X: data consisting of features (excluding class variable)
@@ -127,9 +108,6 @@ def ridgeRegression(X,Y, X_test, Y_test):
     :return: report best RMSE value for tuned alpha in ridge regression
     """
     tuningAlpha = [0.1,0.01,0.001]
-
-   # can change to model on the entire dataset but by convention splitting the dataset is a better option
-   # X_train, X_test, Y_train, Y_test = cross_validation.train_test_split(X, Y, test_size = 0.10, random_state = 5)
 
     ridge = RidgeCV(normalize=True,scoring='mean_squared_error', alphas=tuningAlpha, cv=10)
     ridge.fit(X, Y)
@@ -143,10 +121,10 @@ def ridgeRegression(X,Y, X_test, Y_test):
     
     print "Predicting value for X_test: ", X_test
     print "Predicted: ",ridge.predict(X_test)," True: ", Y_test#, "Error: ",np.sqrt(mean_squared_error(map(float,Y_test), ridge.predict(X_test)))
+    return ridge.predict(X_test)
 
-
-# LASSO REGULARIZATION
-def lassoRegularization(X,Y):
+""" Lasso """
+def lassoRegularization(X,Y, X_test, Y_test):
     """
     :param X: data consisting of features (excluding class variable)
     :param Y: column vector consisting of class variable
@@ -161,71 +139,66 @@ def lassoRegularization(X,Y):
     print "LASSO REGULARIZATION"
     print "Best Alpha value for Lasso Regularization : " + str(lasso.alpha_)
     print 'Best RMSE for corresponding Alpha =', np.sqrt(mean_squared_error(Y, prediction))
+    print "Predicting value for X_test: ", X_test
+    print "Predicted: ",lasso.predict(X_test)," True: ", Y_test#, "Error: ",np.sqrt(mean_squared_error(map(float,Y_test), ridge.predict(X_test)))
+    return lasso.predict(X_test)
 
-def polynomialRegression(X,Y):
-    """
-    :param X: data consisting of features (excluding class variable)
-    :param Y: column vector consisting of class variable
-    :param datasetName: Network / Housing
-    :return: model polynomial regression with tuning of degree of the features
-    """
-    print "POLYNOMIAL REGRESSION"
-    print "Executing..."
+def all_three_models(X, y, header, X_TEST, Y_TARGET):
 
-    # can change to model on the entire dataset but by convention splitting the dataset is a better option
-    X_train, X_test, Y_train, Y_test = cross_validation.train_test_split(X, Y, test_size = 0.10, random_state = 5)
+	""" Splitting Training and Testing for Model Creation """
+	seed = 7
+        X_train, X_test, y_train, y_test = cross_validation.train_test_split(X, y, test_size=0.33, random_state=42)
+    
+        min_diff = 1000
+        min_value = 1000
+	print 'Linear Regression'
+	lm = LinearRegression()
+	lm.fit(X_train, y_train)
+	# print coeff for each feature
+	coefs = pd.DataFrame(zip(header, lm.coef_), columns=['feature','estim coef'])
+	print coefs
+	target = map(float, y_test)
+	pred = lm.predict(X_test)
+	for (a,b) in zip(target, pred):
+		print a," ",b
+	print"RMSE: ", np.sqrt(np.mean((target - pred)**2))
+	print "Predicted: ", lm.predict(X_TEST)," True: ", Y_TARGET
+	if abs(lm.predict(X_TEST) - float(Y_TARGET)) < min_diff:
+		min_value, min_diff = lm.predict(X_TEST), abs(lm.predict(X_TEST) - float(Y_TARGET))
+	print '*'*80
 
-    # get the best degree of freedom
-    degrees = range(1,10)
-    rmse = []
-    print "Testing for the best degree..."
+	""" Ridge """
+	print "Ridge"
+	clf = Ridge(alpha=1.0)
+	clf.fit(X_train, y_train)
+	coefs = pd.DataFrame(zip(header, clf.coef_), columns=['feature','estim coef'])
+	print coefs
+	target = map(float, y_test)
+	pred = clf.predict(X_test)
+	for (a,b) in zip(target, pred):
+		print a," ",b
+	print "RMSE: ", np.sqrt(np.mean((target - pred)**2))
+	print "Predicted: ", clf.predict(X_TEST)," True: ", Y_TARGET
+	if abs(clf.predict(X_TEST) - float(Y_TARGET)) < min_diff:
+		min_value, min_diff = clf.predict(X_TEST), abs(clf.predict(X_TEST) - float(Y_TARGET))
+	print '*'*80
 
-    for deg in range(len(degrees)):
-        polyFeatures = PolynomialFeatures(degree= degrees[deg],interaction_only=True, include_bias= False)
-        lm = LinearRegression()
+	""" Lasso """
+	print 'Lasso'
+	clf = Lasso(alpha=1.0)
+	clf.fit(X_train, y_train)
+	coefs = pd.DataFrame(zip(header, clf.coef_), columns=['feature','estim coef'])
+	print coefs
+	target = map(float, y_test)
+	pred = clf.predict(X_test)
+	for (a,b) in zip(target, pred):
+		print a," ",b
+	print "RMSE: ", np.sqrt(np.mean((target - pred)**2))
+	print "Predicted: ", clf.predict(X_TEST)," True: ", Y_TARGET
+	if abs(clf.predict(X_TEST) - float(Y_TARGET)) < min_diff:
+		min_value, min_diff = clf.predict(X_TEST), abs(clf.predict(X_TEST) - float(Y_TARGET))
+	print '*'*80
+	return min_value
 
-        pipeline = Pipeline([("polynomial_features", polyFeatures),
-                             ("linear_regression", lm)])
 
-        pipeline.fit(X,Y)
-        scores = cross_validation.cross_val_score(pipeline, X, Y, scoring="mean_squared_error", cv=10)
 
-        rmse.append(np.mean(abs(scores)**0.5))
-
-    # plot graph for RMSE vs. degree of polynomial
-    plt.figure(1)
-    plt.plot(degrees,rmse)
-    plt.ylabel("RMSE")
-    plt.xlabel("Polynomial Degree")
-    plt.title("RMSE vs Polynomial Degree")
-
-    # best degree = housing - 3
-    # best degree = network - 5
-
-    degrees = [degrees[rmse.index(min(rmse))]]
-    rmse = []
-
-    # apply transformation on dataset to the best degree of freedom and then find error
-    for deg in range(len(degrees)):
-        polyFeatures = PolynomialFeatures(degree= degrees[deg],interaction_only=True, include_bias= False)
-        X_train_trans = polyFeatures.fit_transform(X_train)
-        X_test_trans = polyFeatures.fit_transform(X_test)
-
-        lm = LinearRegression()
-        lm.fit(X_train_trans,Y_train)
-        predicted = lm.predict(X_test_trans)
-        for (a,b) in zip(Y_train, predicted):
-			print a," ",b
-
-        rmse.append(np.mean(abs(predicted-map(float, Y_test))**0.5))
-    print "Best Degree of Polynomial : " + str(degrees[0])
-    print "Root Mean Squared Error for Best Parameters : " + str(rmse[0])
-
-normalizedX = normalizeDataset(X)
-print 'Normalized X: ', normalizedX
-neuralNetworkRegression(normalizedX, y, X_TEST, Y_TARGET)
-raw_input()
-ridgeRegression(X, y, X_TEST, Y_TARGET)
-lassoRegularization(X, y)
-polynomialRegression(X, y)
-raw_input()
